@@ -19,39 +19,50 @@ def get_leaf_indices(ensemble, x):
     indices = np.column_stack(indices)
     return indices
     
+# clean data
+def clean(data):
+    data['Age'].fillna(data['Age'].median(), inplace = True)
+    data['FamilySize'] = data['SibSp'] + data['Parch']
+    data['AgeClass'] = data.Age * data.Pclass
+    data['Gender'] = data['Sex'].map( {'female': 0, 'male': 1} ).astype(int)
+    
+    data = data.drop(['Name', 'Ticket', 'Cabin', 'Embarked', 'Sex'], axis = 1)
+    
+    return data
+    
 def load_fit_data(path):
-	fit_x = pd.read_csv(path, dtype = str)
-	fit_y = fit_x['Survived'].astype(int).values
-	fit_x = fit_x.drop('Survived', 1)
-	for colname in list(fit_x.columns.values):
-		fit_x[colname] = pd.Categorical.from_array(fit_x[colname]).codes
+    fit_x = pd.read_csv(path)
+    fit_x = clean(fit_x)
+    fit_y = fit_x['Survived'].astype(int).values
+    fit_x = fit_x.drop('Survived', 1)
 		
-	fit_x = fit_x.values
+    fit_x = fit_x.values
 	
-	return fit_x, fit_y
+    return fit_x, fit_y
 
 def vw_ready(data):
 	data[data == 0] = -1
-	data = (data.astype(str) + ' |c').as_matrix()
+	data = (data.astype(str) + ' |C').as_matrix()
 	
 	return data
 
 def load_train_vw(path, gbt):
-    reader = pd.read_csv(path, dtype = str, chunksize = 100)
+    reader = pd.read_csv(path, chunksize = 100)
     for chunk in reader:
+        chunk = clean(chunk)
         survived = chunk['Survived'].astype(int)
         chunk = chunk.drop('Survived', 1)
+        chunk = chunk.drop('PassengerId', 1)
         orig = []
         for colname in list(chunk.columns.values):
-            orig.append(colname + chunk[colname])
-            chunk[colname] = pd.Categorical.from_array(chunk[colname]).codes
+            orig.append(colname + chunk[colname].astype(str))
         
         chunk = chunk.values
         orig = np.column_stack(orig)
 
         gbt_tree = get_leaf_indices(gbt, chunk).astype(str)
         for row in range(0, chunk.shape[0]):
-            for column in range(0,30,1):
+            for column in range(0,500,1):
                 gbt_tree[row,column] = ('C' + str(column) + str(gbt_tree[row, column]))
         
         survived = vw_ready(survived)
@@ -63,26 +74,26 @@ def load_train_vw(path, gbt):
         file_handle.close()
         
 def load_test_vw(path, gbt):
-    reader = pd.read_csv(path, dtype = str, chunksize = 100)
+    reader = pd.read_csv(path, chunksize = 100)
     for chunk in reader:
-        id = chunk['PassengerId'].astype(str)
+        chunk = clean(chunk)
+        pid = chunk['PassengerId']
         chunk = chunk.drop('PassengerId', 1)
         orig = []
         for colname in list(chunk.columns.values):
-            orig.append(colname + chunk[colname])
-            chunk[colname] = pd.Categorical.from_array(chunk[colname]).codes
+            orig.append(colname + chunk[colname].astype(str))
         
         chunk = chunk.values
         orig = np.column_stack(orig)
 
         gbt_tree = get_leaf_indices(gbt, chunk).astype(str)
         for row in range(0, chunk.shape[0]):
-            for column in range(0,30,1):
+            for column in range(0,500,1):
                 gbt_tree[row,column] = ('C' + str(column) + str(gbt_tree[row, column]))
         
-        id = vw_ready(id)
+        pid = (pid.astype(str) + ' |C').as_matrix()
         
-        out = np.column_stack((id, orig, gbt_tree))
+        out = np.column_stack((pid, orig, gbt_tree))
         
         file_handle = file('tree.test.txt', 'a')
         np.savetxt(file_handle, out, delimiter = ' ', fmt = '%s')
@@ -90,7 +101,7 @@ def load_test_vw(path, gbt):
 
 	
 def main():
-    gbt = GradientBoostingClassifier(n_estimators = 30, max_depth = 7, verbose = 1)
+    gbt = GradientBoostingClassifier(n_estimators = 500, max_depth = 7, verbose = 1)
 	
     fit_x, fit_y = load_fit_data(train_loc)
     
@@ -102,7 +113,7 @@ def main():
     load_train_vw(train_loc, gbt)
     
     print('transforming and writing testing data ... ')
-    load_test_vw(train_loc, gbt)
+    load_test_vw(test_loc, gbt)
     
 if __name__ == '__main__':
     main()
